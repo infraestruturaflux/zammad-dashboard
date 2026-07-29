@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Ambiente e segredos
+.env
+
+# Banco de dados
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+logs/
+
+# Node / React
+noc-web/node_modules/
+noc-web/dist/
+noc-web/.vite/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Relatório PDF e script gerador (local)
+gerar_relatorio.py
+Atualizacoes_NOC_Dashboard.pdf

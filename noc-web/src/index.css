@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    @apply h-full bg-noc-bg text-white;
+  }
+
+  * {
+    @apply box-border;
+  }
+
+  ::-webkit-scrollbar        { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track  { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb  { @apply bg-noc-border rounded-full; }
+}
+
+@layer components {
+  .noc-card {
+    @apply bg-noc-surface border border-noc-border rounded-xl p-4;
+  }
+}

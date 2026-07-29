@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node
+noc-web/node_modules/
+noc-web/.vite/
+
+# Banco de dados local
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Secrets (não copiar — deve existir no servidor)
+.env
+
+# Debug / dev scripts
+debug_*.py
+check_*.py
+reset_*.py
+run_*.py
+clear_*.py
+_gen_hash.py
+
+# Logs e outputs
+*.log
+*.txt
+logs/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
