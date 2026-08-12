@@ -1,18 +1,35 @@
 import logging
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
+from sqlalchemy import and_, func, or_, select, text
+
+from app.api.noc import (
+    _STATE_AG_CLIENTE,
+    _STATE_AG_TERCEIROS,
+    _not_excluded_analyst,
+    _not_excluded_group,
+    _owner_is_phantom,
+    _owner_is_real,
+)
+from app.core.database import AsyncSessionLocal
+from app.models.ticket import Ticket
 from app.schemas.metrics import (
     AnalystDayDetailResponse,
     AnalystLoadResponse,
     AnalystPerformanceResponse,
+    AnalystTicket,
+    AnalystTicketsResponse,
     FRTStats,
     FRTToday,
     HeatmapResponse,
     MTTAStatsResponse,
     MTTRStatsResponse,
+    TeamStatusItem,
+    TeamStatusResponse,
     TicketJourneyResponse,
     TopOffenderDetailResponse,
     TopOffendersResponse,
@@ -374,6 +391,227 @@ async def analyst_performance(
     if cached is not None:
         return cached
     result = compute_analyst_performance(start_date=start_date, end_date=end_date)
+    noc_cache.set(cache_key, result, ttl=300)
+    return result
+
+
+# ── Situação atual da equipe (snapshot por analista × estado) ─────────────────
+
+_EM_ATEND_STATES = frozenset({"em atendimento"})
+_ESCAL_STATES    = frozenset({"escalonado dev", "escalonado rotas", "escalonado infra"})
+_ACTIVE_STATES   = _EM_ATEND_STATES | _ESCAL_STATES | _STATE_AG_CLIENTE | _STATE_AG_TERCEIROS
+
+
+def _pretty_owner(owner: str) -> str:
+    """Fallback: e-mail → nome title-case quando não há registro em zammad_users."""
+    local = owner.split("@")[0] if "@" in owner else owner
+    return " ".join(w.capitalize() for w in re.split(r"[._\s-]+", local) if w) or owner
+
+
+def _state_bucket(state_lower: str) -> str | None:
+    if state_lower in _EM_ATEND_STATES:
+        return "em_atend"
+    if state_lower in _ESCAL_STATES:
+        return "escal_dev"
+    if state_lower in _STATE_AG_CLIENTE:
+        return "ag_cliente"
+    if state_lower in _STATE_AG_TERCEIROS:
+        return "ag_terceiros"
+    return None
+
+
+@router.get("/team-status", response_model=TeamStatusResponse,
+            summary="Situação atual: tickets ativos por analista × estado")
+async def team_status():
+    cached = noc_cache.get("team_status")
+    if cached is not None:
+        return cached
+
+    async with AsyncSessionLocal() as session:
+        rows = await session.execute(
+            select(Ticket.owner, func.lower(Ticket.state), func.count(Ticket.id))
+            .where(
+                func.lower(Ticket.state).in_(list(_ACTIVE_STATES)),
+                _owner_is_real(),
+                func.lower(func.trim(Ticket.owner)).notlike("auto-%"),
+                _not_excluded_group(),
+                _not_excluded_analyst(),
+            )
+            .group_by(Ticket.owner, func.lower(Ticket.state))
+        )
+        agg: dict[str, dict[str, int]] = {}
+        for owner, state_lower, cnt in rows:
+            bucket = _state_bucket(state_lower)
+            if bucket is None:
+                continue
+            d = agg.setdefault(owner, {"em_atend": 0, "escal_dev": 0, "ag_cliente": 0, "ag_terceiros": 0})
+            d[bucket] += cnt
+
+        # Mapa e-mail → nome de exibição do Zammad (mesma fonte do analyst-performance)
+        urows = await session.execute(text("SELECT lower(email) AS e, name FROM zammad_users"))
+        namemap = {e: n for e, n in urows if n}
+
+    analysts = [
+        TeamStatusItem(
+            owner=owner,
+            name=namemap.get((owner or "").strip().lower()) or _pretty_owner(owner or ""),
+            total=sum(d.values()), **d,
+        )
+        for owner, d in agg.items()
+    ]
+    analysts.sort(key=lambda a: a.total, reverse=True)
+    result = TeamStatusResponse(analysts=analysts, total=sum(a.total for a in analysts))
+    noc_cache.set("team_status", result, ttl=20)
+    return result
+
+
+@router.get("/analyst-tickets", response_model=AnalystTicketsResponse,
+            summary="Tickets ativos atualmente atribuídos a um analista")
+async def analyst_tickets(owner: str = Query(..., description="E-mail do analista (owner)")):
+    cache_key = f"analyst_tickets:{owner.strip().lower()}"
+    cached = noc_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    async with AsyncSessionLocal() as session:
+        rows = await session.execute(
+            select(Ticket.number, Ticket.title, Ticket.state)
+            .where(
+                func.lower(func.trim(Ticket.owner)) == owner.strip().lower(),
+                func.lower(Ticket.state).in_(list(_ACTIVE_STATES)),
+                _not_excluded_group(),
+            )
+            .order_by(Ticket.updated_at.desc())
+        )
+        tickets = [
+            AnalystTicket(number=r.number, title=r.title or "", state=r.state or "")
+            for r in rows
+        ]
+
+    result = AnalystTicketsResponse(owner=owner, tickets=tickets, total=len(tickets))
+    noc_cache.set(cache_key, result, ttl=20)
+    return result
+
+
+@router.get("/analyst-load-tickets", summary="Tickets atendidos por um analista no período (Carga Mensal)")
+async def analyst_load_tickets(
+    owner:      str        = Query(..., description="E-mail do analista (owner)"),
+    month:      str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+    start_date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end_date:   str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+):
+    if month:
+        from calendar import monthrange
+        y, m = map(int, month.split("-"))
+        start_date = f"{month}-01"
+        end_date   = f"{month}-{monthrange(y, m)[1]:02d}"
+
+    cache_key = f"analyst_load_tickets:{owner.strip().lower()}:{start_date}:{end_date}"
+    cached = noc_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    conds = [func.lower(func.trim(Ticket.owner)) == owner.strip().lower(), _not_excluded_group()]
+    if start_date:
+        d = datetime.fromisoformat(start_date)
+        conds.append(Ticket.created_at >= datetime(d.year, d.month, d.day, 0, 0, 0))
+    if end_date:
+        d = datetime.fromisoformat(end_date)
+        conds.append(Ticket.created_at <= datetime(d.year, d.month, d.day, 23, 59, 59, 999999))
+
+    async with AsyncSessionLocal() as session:
+        rows = await session.execute(
+            select(Ticket.number, Ticket.title, Ticket.state)
+            .where(*conds).order_by(Ticket.created_at.desc()).limit(500)
+        )
+        tickets = [{"number": r.number, "title": r.title or "", "state": r.state or ""} for r in rows]
+
+    result = {"owner": owner, "tickets": tickets, "total": len(tickets)}
+    noc_cache.set(cache_key, result, ttl=300)
+    return result
+
+
+_FILA_STATES = _EM_ATEND_STATES | _ESCAL_STATES
+_BUCKET_STATES = {
+    "ag_cliente":   _STATE_AG_CLIENTE,
+    "ag_terceiros": _STATE_AG_TERCEIROS,
+    "resolvidos":   frozenset({"resolvido"}),
+}
+_VALID_BUCKETS = set(_BUCKET_STATES) | {"abertos", "em_atend"}
+
+
+@router.get("/state-tickets", summary="Tickets atualmente num estado (drill-down da Operação)")
+async def state_tickets(bucket: str = Query(..., description="em_atend|ag_cliente|ag_terceiros|abertos|resolvidos")):
+    if bucket not in _VALID_BUCKETS:
+        from fastapi import HTTPException
+        raise HTTPException(422, f"bucket inválido: {bucket}")
+
+    cache_key = f"state_tickets:{bucket}"
+    cached = noc_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Abertos e Em Atendimento seguem exatamente a definição do termômetro (queue):
+    #   abertos   = estado "Aberto" OU (em atendimento/escalonado SEM dono real)
+    #   em_atend  = em atendimento/escalonado COM dono real
+    if bucket == "abertos":
+        state_cond = or_(
+            func.lower(Ticket.state) == "aberto",
+            and_(func.lower(Ticket.state).in_(list(_FILA_STATES)), _owner_is_phantom()),
+        )
+    elif bucket == "em_atend":
+        state_cond = and_(func.lower(Ticket.state).in_(list(_FILA_STATES)), _owner_is_real())
+    else:
+        state_cond = func.lower(Ticket.state).in_(list(_BUCKET_STATES[bucket]))
+
+    conds = [state_cond, _not_excluded_group()]
+    if bucket == "resolvidos":
+        today = datetime.now(timezone.utc).date()
+        conds.append(Ticket.updated_at >= datetime(today.year, today.month, today.day, 0, 0, 0))
+
+    async with AsyncSessionLocal() as session:
+        rows = await session.execute(
+            select(Ticket.number, Ticket.title, Ticket.state, Ticket.owner)
+            .where(*conds).order_by(Ticket.updated_at.desc()).limit(300)
+        )
+        tickets = [
+            {"number": r.number, "title": r.title or "", "state": r.state or "", "owner": r.owner}
+            for r in rows
+        ]
+
+    result = {"bucket": bucket, "tickets": tickets, "total": len(tickets)}
+    noc_cache.set(cache_key, result, ttl=15)
+    return result
+
+
+@router.get("/day-tickets", summary="Tickets criados numa data — drill-down do Histórico")
+async def day_tickets(date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$")):
+    from collections import Counter
+
+    cache_key = f"day_tickets:{date}"
+    cached = noc_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    d = datetime.fromisoformat(date).date()
+    day_start = datetime(d.year, d.month, d.day, 0, 0, 0)
+    day_end   = datetime(d.year, d.month, d.day, 23, 59, 59, 999999)
+
+    async with AsyncSessionLocal() as session:
+        rows = await session.execute(
+            select(Ticket.number, Ticket.title, Ticket.state, Ticket.group, Ticket.owner, Ticket.customer)
+            .where(Ticket.created_at >= day_start, Ticket.created_at <= day_end, _not_excluded_group())
+            .order_by(Ticket.created_at.desc())
+        )
+        tickets = [
+            {"number": r.number, "title": r.title or "", "state": r.state or "",
+             "group": (r.group or "—"), "owner": r.owner, "customer": r.customer}
+            for r in rows
+        ]
+
+    gcount = Counter(t["group"] for t in tickets)
+    groups = [{"group": g, "count": c} for g, c in gcount.most_common()]
+    result = {"date": date, "total": len(tickets), "groups": groups, "tickets": tickets}
     noc_cache.set(cache_key, result, ttl=300)
     return result
 

@@ -4,8 +4,11 @@ import Sidebar from './components/Sidebar'
 import Home from './pages/Home'
 import Metrics from './pages/Metrics'
 import History from './pages/History'
+import HistoryNew from './pages/HistoryNew'
 import Performance from './pages/Performance'
-import ChamadosParados from './pages/ChamadosParados'
+import PerformanceNew from './pages/PerformanceNew'
+import Overview from './pages/Overview'
+import MetricsNew from './pages/MetricsNew'
 import Login from './pages/Login'
 import { getToken } from './api/client'
 
@@ -24,11 +27,24 @@ function DashboardLayout() {
         <Sidebar />
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <Routes>
-            <Route path="/"        element={<Home />} />
-            <Route path="/metrics" element={<Metrics />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/performance" element={<Performance />} />
-            <Route path="/parados"     element={<ChamadosParados />} />
+            {/* Operação = nova Visão Operacional (redesign) */}
+            <Route path="/"        element={<Overview />} />
+            {/* Painel antigo preservado (dados reais) até o redesign ser ligado ao backend */}
+            <Route path="/classic" element={<Home />} />
+            <Route path="/overview" element={<Navigate to="/" replace />} />
+            {/* Métricas = nova versão (redesign) */}
+            <Route path="/metrics" element={<MetricsNew />} />
+            {/* Métricas antiga preservada (dados reais + exportação) */}
+            <Route path="/metrics-classic" element={<Metrics />} />
+            <Route path="/metrics-new" element={<Navigate to="/metrics" replace />} />
+            {/* Histórico = nova versão (redesign) */}
+            <Route path="/history" element={<HistoryNew />} />
+            {/* Histórico antigo preservado (dados reais) */}
+            <Route path="/history-classic" element={<History />} />
+            {/* Desempenho = nova versão (redesign) */}
+            <Route path="/performance" element={<PerformanceNew />} />
+            {/* Desempenho antigo preservado (dados reais) */}
+            <Route path="/performance-classic" element={<Performance />} />
             <Route path="*"        element={<Navigate to="/" replace />} />
           </Routes>
         </main>

@@ -5,8 +5,12 @@ const LINKS = [
   { to: '/metrics',     icon: '▦', label: 'Métricas'    },
   { to: '/history',     icon: '↗', label: 'Histórico'   },
   { to: '/performance', icon: '⏱', label: 'Desempenho'  },
-  { to: '/parados',     icon: '⏸', label: 'Parados'     },
 ]
+
+// ── Fallback: páginas antigas (dados reais) ───────────────────────────────────
+// Ocultas do menu, mas ACESSÍVEIS por URL caso algo falhe no redesign:
+//   /classic · /metrics-classic · /history-classic · /performance-classic
+// As rotas continuam registradas em App.jsx — não remover.
 
 export default function Sidebar() {
   return (

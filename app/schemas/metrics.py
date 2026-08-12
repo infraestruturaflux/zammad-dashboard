@@ -214,3 +214,32 @@ class AnalystPerformanceResponse(BaseModel):
     start_date: str
     end_date:   str
     analysts:   list[AnalystPerformanceItem]
+
+
+# ── Situação atual da equipe (snapshot por analista × estado) ─────────────────
+
+class TeamStatusItem(BaseModel):
+    owner:        str
+    name:         str
+    em_atend:     int
+    escal_dev:    int
+    ag_cliente:   int
+    ag_terceiros: int
+    total:        int
+
+
+class TeamStatusResponse(BaseModel):
+    analysts: list[TeamStatusItem]
+    total:    int
+
+
+class AnalystTicket(BaseModel):
+    number: str
+    title:  str
+    state:  str
+
+
+class AnalystTicketsResponse(BaseModel):
+    owner:   str
+    tickets: list[AnalystTicket]
+    total:   int

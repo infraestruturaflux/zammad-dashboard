@@ -6,6 +6,7 @@ import {
   MOCK_VOLUME_BY_STATUS, mockVolumeStatusDetail,
   mockMTTRStats, mockMTTAStats, mockSLAStats,
   mockVolumeByGroup, mockAnalystPerformance, mockHistoryRange,
+  MOCK_TEAM_STATUS, mockAnalystTickets, mockDayTickets, mockStateTickets,
 } from './mockData'
 
 // ── Flag de mock — true = usa dados fictícios (sem backend) ───────────────────
@@ -92,6 +93,26 @@ export const getIdle = (idle_days = 3) =>
 
 export const getTeamNow = () =>
   USE_MOCK ? mockDelay(MOCK_TEAM_NOW) : api.get('/noc/team-now')
+
+// Situação atual: tickets ativos por analista × estado (em_atend/escal/ag_cliente/ag_terceiros)
+export const getTeamStatus = () =>
+  USE_MOCK ? mockDelay(MOCK_TEAM_STATUS) : api.get('/metrics/team-status')
+
+// Tickets ativos atualmente atribuídos a um analista (drawer)
+export const getAnalystTickets = (owner) =>
+  USE_MOCK ? mockDelay(mockAnalystTickets(owner)) : api.get('/metrics/analyst-tickets', { params: { owner } })
+
+// Tickets criados numa data — drill-down do Histórico
+export const getDayTickets = (date) =>
+  USE_MOCK ? mockDelay(mockDayTickets(date)) : api.get('/metrics/day-tickets', { params: { date } })
+
+// Tickets atualmente num estado — drill-down da Operação
+export const getStateTickets = (bucket) =>
+  USE_MOCK ? mockDelay(mockStateTickets(bucket)) : api.get('/metrics/state-tickets', { params: { bucket } })
+
+// Tickets atendidos por um analista no período — drill-down da Carga Mensal (Métricas)
+export const getAnalystLoadTickets = (owner, month) =>
+  USE_MOCK ? mockDelay(mockAnalystTickets(owner)) : api.get('/metrics/analyst-load-tickets', { params: { owner, month } })
 
 export const getTodayFeed = () =>
   USE_MOCK ? mockDelay(MOCK_TODAY_FEED) : api.get('/noc/today-feed')

@@ -152,6 +152,87 @@ export const MOCK_TODAY_FEED = {
   ],
 }
 
+// ── /metrics/team-status ──────────────────────────────────────────────────────
+
+export const MOCK_TEAM_STATUS = {
+  total: 44,
+  analysts: [
+    { owner: 'thiago.venter.ext@flux.net.br', em_atend: 4, escal_dev: 1, ag_cliente: 3, ag_terceiros: 2, total: 10 },
+    { owner: 'joao.bortolaci@flux.net.br',    em_atend: 3, escal_dev: 0, ag_cliente: 2, ag_terceiros: 3, total: 8 },
+    { owner: 'lucas.oliveira@flux.net.br',    em_atend: 3, escal_dev: 2, ag_cliente: 2, ag_terceiros: 1, total: 8 },
+    { owner: 'amanda.silva@flux.net.br',      em_atend: 2, escal_dev: 3, ag_cliente: 0, ag_terceiros: 2, total: 7 },
+    { owner: 'fernanda.santos@flux.net.br',   em_atend: 3, escal_dev: 0, ag_cliente: 2, ag_terceiros: 0, total: 5 },
+    { owner: 'carlos.pereira@flux.net.br',    em_atend: 2, escal_dev: 0, ag_cliente: 2, ag_terceiros: 1, total: 5 },
+    { owner: 'rafael.costa@flux.net.br',      em_atend: 1, escal_dev: 0, ag_cliente: 0, ag_terceiros: 0, total: 1 },
+  ],
+}
+
+const MOCK_STATE_LABELS = ['Em atendimento', 'Escalonado Dev', 'Aguardando Cliente', 'Aguardando Terceiros']
+
+export function mockAnalystTickets(owner) {
+  const row = MOCK_TEAM_STATUS.analysts.find(a => a.owner === owner)
+  const total = row?.total ?? 6
+  const tickets = []
+  let num = 22890 + Math.floor(seed(owner || '') * 400)
+  const spread = [
+    ...Array(row?.em_atend ?? 2).fill('Em atendimento'),
+    ...Array(row?.escal_dev ?? 0).fill('Escalonado Dev'),
+    ...Array(row?.ag_cliente ?? 2).fill('Aguardando Cliente'),
+    ...Array(row?.ag_terceiros ?? 1).fill('Aguardando Terceiros'),
+  ]
+  const src = spread.length ? spread : Array(total).fill(MOCK_STATE_LABELS[0])
+  src.forEach((state, i) => {
+    tickets.push({
+      number: String(num++),
+      title:  MOCK_TICKET_TITLES[(Math.floor(seed(owner + i) * 100)) % MOCK_TICKET_TITLES.length],
+      state,
+    })
+  })
+  return { owner, tickets, total: tickets.length }
+}
+
+// ── /metrics/day-tickets ──────────────────────────────────────────────────────
+
+export function mockDayTickets(date) {
+  const n = 6 + Math.floor(seed(date || '') * 10)
+  const GROUPS = ['Entrantes', 'SBC', 'ROTAS', 'PABX', 'Omnichannel', 'Suporte N2']
+  const STATES = ['Em atendimento', 'Aguardando Cliente', 'Aguardando Terceiros', 'Resolvido']
+  const tickets = []
+  let num = 2280000 + Math.floor(seed(date) * 6000)
+  for (let i = 0; i < n; i++) {
+    tickets.push({
+      number: String(num++),
+      title: MOCK_TICKET_TITLES[Math.floor(seed(date + i) * 100) % MOCK_TICKET_TITLES.length],
+      state: STATES[i % STATES.length],
+      group: GROUPS[Math.floor(seed(date + 'g' + i) * 100) % GROUPS.length],
+      owner: MOCK_ANALYSTS[i % MOCK_ANALYSTS.length],
+      customer: 'cliente@exemplo.com.br',
+    })
+  }
+  const gc = {}
+  tickets.forEach(t => { gc[t.group] = (gc[t.group] || 0) + 1 })
+  const groups = Object.entries(gc).map(([group, count]) => ({ group, count })).sort((a, b) => b.count - a.count)
+  return { date, total: tickets.length, groups, tickets }
+}
+
+// ── /metrics/state-tickets ────────────────────────────────────────────────────
+
+export function mockStateTickets(bucket) {
+  const stateLabel = { em_atend: 'Em atendimento', ag_cliente: 'Aguardando Cliente', ag_terceiros: 'Aguardando Terceiros', abertos: 'Aberto', resolvidos: 'Resolvido' }[bucket] || 'Em atendimento'
+  const n = 5 + Math.floor(seed(bucket) * 12)
+  const tickets = []
+  let num = 22930 + Math.floor(seed(bucket) * 500)
+  for (let i = 0; i < n; i++) {
+    tickets.push({
+      number: String(num++),
+      title: MOCK_TICKET_TITLES[Math.floor(seed(bucket + i) * 100) % MOCK_TICKET_TITLES.length],
+      state: stateLabel,
+      owner: MOCK_ANALYSTS[i % MOCK_ANALYSTS.length],
+    })
+  }
+  return { bucket, tickets, total: tickets.length }
+}
+
 // ── /metrics/top-offenders ────────────────────────────────────────────────────
 
 export function mockTopOffenders(by) {
