@@ -1,0 +1,2 @@
+# Scripts shell SEMPRE com LF (rodam no servidor Linux — CRLF quebra o shebang)
+*.sh text eol=lf
