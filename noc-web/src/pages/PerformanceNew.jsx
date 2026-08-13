@@ -71,8 +71,8 @@ const GROUP_BLOCK = new Set([
 const catOf = name => GROUP_CATEGORY[(name || '').trim().toLowerCase()] ?? 'outros'
 
 // ── Gauge (MTTR) ──────────────────────────────────────────────────────────────
-function GaugeMTTR({ value, meta = 6, fmt }) {
-  const max = value == null ? 12 : value <= 12 ? 12 : value <= 24 ? 24 : 48
+function GaugeMTTR({ value, meta = 24, fmt }) {
+  const max = meta * 1.5   // deixa a meta em ~66% do arco, com zona vermelha acima dela
   const A0 = -210, A1 = 30, rad = a => (a * Math.PI) / 180
   const ang = v => A0 + (Math.min(v ?? 0, max) / max) * (A1 - A0)
   const R = 80, cx = 100, cy = 100
@@ -128,7 +128,7 @@ function InfoTip({ text }) {
   )
 }
 const GLOSS = {
-  mttr: 'MTTR — Mean Time To Resolve: tempo médio entre abertura e resolução (horas úteis). Meta 6h.',
+  mttr: 'MTTR — Mean Time To Resolve: tempo médio entre abertura e resolução (horas úteis). Meta 24h úteis.',
   fcr: 'FCR — First Contact Resolution: % resolvidos no 1º contato, sem reabertura. Média da equipe.',
   mtta: 'MTTA — Mean Time To Assign: tempo médio até a 1ª ação do analista.',
   ativos: 'Tickets atualmente atribuídos ao analista e ainda abertos (carga instantânea).',
@@ -201,11 +201,13 @@ function Leaderboard({ rows, mode, loading, onPick }) {
               <tr key={a.owner} onClick={() => onPick({ type: 'analyst', owner: a.owner, name: a.name })} className="cursor-pointer transition-colors hover:bg-[#1a2233]" style={{ borderBottom: `1px solid ${BORDER}55` }}>
                 <td className="py-3 pr-4 text-[13px] font-medium whitespace-nowrap" style={{ color: INK }}>{a.name}</td>
                 <td className="py-3 px-3 text-center text-[13px] tabular-nums font-bold" style={{ color: C.accent }}>{a.tickets}</td>
-                <td className="py-3 px-3">
-                  <span className="flex items-center justify-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full" style={{ background: a.cargaTone }} />
-                    <span className="text-[13px] font-semibold tabular-nums" style={{ color: a.cargaTone }}>{a.ativos}</span>
-                  </span>
+                <td className="py-3 px-3 text-center">
+                  {a.ativos == null ? <span className="text-[13px]" style={{ color: FAINT }}>—</span> : (
+                    <span className="flex items-center justify-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full" style={{ background: a.cargaTone }} />
+                      <span className="text-[13px] font-semibold tabular-nums" style={{ color: a.cargaTone }}>{a.ativos}</span>
+                    </span>
+                  )}
                 </td>
                 <td className="py-3 px-3">{a.fcr == null ? <span className="text-[13px]" style={{ color: FAINT }}>—</span> : <InlineBar pct={a.fcr} color={a.fcr >= 80 ? C.good : a.fcr >= 68 ? C.warn : C.crit} />}</td>
                 <td className="py-3 px-3 text-right text-[13px] tabular-nums whitespace-nowrap" style={{ color: INK }}>{a.ativoFmt}</td>
@@ -313,6 +315,9 @@ export default function PerformanceNew() {
     return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null
   }, [perf])
 
+  // "Ativos" é a carga ATUAL (ao vivo) — só faz sentido no mês corrente
+  const isCurrentMonth = month === currentMonthISO()
+
   // Linhas do leaderboard
   const rows = useMemo(() => (perf?.analysts ?? []).map(a => {
     const g = (field) => mode === 'biz'
@@ -322,21 +327,21 @@ export default function PerformanceNew() {
     const total = (act.h ?? 0) + (cli.h ?? 0) + (ter.h ?? 0)
     const pctAtivo = total > 0 ? Math.round(((act.h ?? 0) / total) * 100) : null
     const displayName = a.owner && a.owner.includes('@') ? fullName(a.owner) : a.owner  // perf já traz nome
-    const ativos = totalByName[displayName] ?? 0
+    const ativos = isCurrentMonth ? (totalByName[displayName] ?? 0) : null
     const email = emailByName[displayName] ?? a.owner
-    const cargaTone = ativos > 12 ? C.critdark : ativos > 8 ? C.warn : C.good
+    const cargaTone = ativos == null ? FAINT : ativos > 12 ? C.critdark : ativos > 8 ? C.warn : C.good
     const tags = []
     if (a.fcr_pct != null && a.fcr_pct >= 85) tags.push({ label: 'Alta Eficiência', tone: 'good' })
     if (a.fcr_pct != null && a.fcr_pct < 65) tags.push({ label: 'Alerta FCR', tone: 'crit' })
     if (pctAtivo != null && pctAtivo < 35) tags.push({ label: 'Muita Espera', tone: 'serious' })
-    if (ativos > 12) tags.push({ label: 'Sobrecarga', tone: 'critdark' })
+    if (isCurrentMonth && ativos > 12) tags.push({ label: 'Sobrecarga', tone: 'critdark' })
     return {
       owner: email, name: displayName, tickets: a.tickets_count,
       ativos, cargaTone, fcr: a.fcr_pct ?? null,
       ativoFmt: (act.h ?? 0) > 0 ? act.fmt : '—', agcFmt: (cli.h ?? 0) > 0 ? cli.fmt : '—', agtFmt: (ter.h ?? 0) > 0 ? ter.fmt : '—',
       pctAtivo, tags,
     }
-  }), [perf, mode, totalByName, emailByName])
+  }), [perf, mode, totalByName, emailByName, isCurrentMonth])
 
   // Raio-X — agrupa filas reais nas 3 categorias
   const categories = useMemo(() => {
@@ -415,7 +420,10 @@ export default function PerformanceNew() {
         }>
         <Leaderboard rows={rows} mode={mode} loading={perfLoad} onPick={setDrawer} />
         <p className="text-[10px] mt-3" style={{ color: FAINT }}>
-          Ativos: <span style={{ color: C.good }}>● ≤8</span> · <span style={{ color: C.warn }}>9–12</span> · <span style={{ color: C.critdark }}>&gt;12</span> tickets · tempos em <b style={{ color: MUTED }}>{mode === 'biz' ? 'horas úteis (08h–19h seg–sex)' : 'horas corridas'}</b>
+          {isCurrentMonth
+            ? <>Ativos: <span style={{ color: C.good }}>● ≤8</span> · <span style={{ color: C.warn }}>9–12</span> · <span style={{ color: C.critdark }}>&gt;12</span> tickets · </>
+            : <>Ativos (carga atual ao vivo) só aparece no mês corrente · </>}
+          tempos em <b style={{ color: MUTED }}>{mode === 'biz' ? 'horas úteis (08h–19h seg–sex)' : 'horas corridas'}</b>
         </p>
       </Panel>
 

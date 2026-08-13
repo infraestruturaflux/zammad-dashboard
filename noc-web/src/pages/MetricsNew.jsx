@@ -195,6 +195,13 @@ function TicketsDrawer({ ctx, month, onClose }) {
   const counts = {}
   all.forEach(t => { const k = stateKey(t.state); if (k) counts[k] = (counts[k] || 0) + 1 })
 
+  const expTitle = isOff ? `Top Ofensor ${ctx.by === 'group' ? '(Grupo)' : '(Cliente)'} - ${ctx.name}`
+    : isPeriod ? `Carga - ${ctx.name} - ${fmtMonth(month)}` : `Analista - ${ctx.name}`
+  async function doExport() {
+    const u = await import('../utils/exportTickets')
+    u.exportTicketsXlsx(expTitle, all, { includeOwner: isOff })
+  }
+
   const term = q.trim().toLowerCase()
   const tickets = all.filter(t =>
     (!stateSel || stateKey(t.state) === stateSel) &&
@@ -215,7 +222,14 @@ function TicketsDrawer({ ctx, month, onClose }) {
               {loading ? 'carregando…' : <><span className="font-bold tabular-nums">{tickets.length}</span>{(term || stateSel) ? ` de ${all.length}` : ''} chamados</>}
             </p>
           </div>
-          <button onClick={onClose} className="text-xl leading-none shrink-0" style={{ color: MUTED }}>✕</button>
+          <div className="flex items-center gap-3 shrink-0">
+            <button onClick={doExport} disabled={loading || !all.length}
+              className="text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-40"
+              style={{ color: MUTED, border: `1px solid ${BORDER}` }}
+              onMouseEnter={e => !e.currentTarget.disabled && (e.currentTarget.style.color = INK)} onMouseLeave={e => (e.currentTarget.style.color = MUTED)}
+              title="Exportar chamados (Excel, ordenado por estado)">⬇ Exportar</button>
+            <button onClick={onClose} className="text-xl leading-none" style={{ color: MUTED }}>✕</button>
+          </div>
         </div>
 
         {!loading && all.length > 0 && (
@@ -324,7 +338,16 @@ export default function MetricsNew() {
       {/* Linha 2 */}
       <section className="flex-1 min-h-0">
         <Panel title="Situação Atual da Equipe"
-          right={<span className="text-[10px] normal-case tracking-normal" style={{ color: FAINT }}>ao vivo · clique numa linha para ver os chamados</span>}
+          right={
+            <div className="flex items-center gap-3">
+              <button onClick={async () => { const u = await import('../utils/exportTickets'); u.exportTeamStatusXlsx('Situacao Atual da Equipe', statusRows) }} disabled={!statusRows.length}
+                className="text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-40"
+                style={{ color: MUTED, border: `1px solid ${BORDER}` }}
+                onMouseEnter={e => !e.currentTarget.disabled && (e.currentTarget.style.color = INK)} onMouseLeave={e => (e.currentTarget.style.color = MUTED)}
+                title="Exportar situação (Excel)">⬇ Exportar</button>
+              <span className="text-[10px] normal-case tracking-normal" style={{ color: FAINT }}>ao vivo · clique numa linha</span>
+            </div>
+          }
           className="h-full">
           <TeamStatusTable rows={statusRows} loading={statusLoad} onRowClick={(r) => setDrawer({ type: 'analyst', owner: r.owner, name: r.name })} />
           <p className="text-[10px] mt-3" style={{ color: FAINT }}>
